@@ -211,7 +211,8 @@ namespace Blockchain
                 }
 
                 int index = 0;
-                string data = textBox1.Text;
+                string data = string.Empty;
+                Dispatcher.Invoke(() => data = textBox1.Text);                    // ---> WHEN CLICKING ON MINE IT THROWS (System.InvalidOperationException: 'The calling thread cannot access this object because a different thread owns it.')
                 string previous_hash = "0";
 
 
@@ -239,8 +240,13 @@ namespace Blockchain
                 if (!run) break;
                 chain.Add(new Block(index, time_stamp, data, hash, previous_hash, DIFFICULTY, nonce, username));
 
-                richTextBox2.Dispatcher.Invoke(new Action(() => richTextBox2.AppendText("correct: " + hash + " diff: " + DIFFICULTY.ToString() + "\n")));
-                richTextBox2.Dispatcher.Invoke(new Action(() => richTextBox2.AppendText("Broadcasting our BlockChain:" + "\n")));
+                // Update richTextBox2 content
+                richTextBox2.Dispatcher.Invoke(() =>
+                {
+                    richTextBox2.AppendText("correct: " + hash + " diff: " + DIFFICULTY.ToString() + "\n");
+                    richTextBox2.AppendText("Broadcasting our BlockChain:" + "\n");
+                    richTextBox2.ScrollToEnd(); // Scroll to the end
+                });
 
                 CheckTimeDiff();
 
@@ -374,7 +380,7 @@ namespace Blockchain
             try
             {
                 TcpClient client_client = new TcpClient();
-                SERVER_PORT = Int32.Parse(textBox1.Text);
+                SERVER_PORT = Int32.Parse(textBox2.Text);
                 client_client.Connect(STD_IP, SERVER_PORT);
                 List<string> param = new List<string>();
                 param.Add("C");
@@ -408,11 +414,11 @@ namespace Blockchain
             }
         }
 
-        private void button3_Click(object sender, EventArgs e)
+        private void Start_Click(object sender, EventArgs e)
         {
             //start
-            STD_PORT = Int32.Parse(textBox1.Text);
-            username = textBox1.Text;
+            STD_PORT = Int32.Parse(textBox3.Text); // when clicking on start it throws an exception (System.FormatException: 'Input string was not in a correct format.')
+            username = textBox3.Text;
 
             Thread thread = new Thread(new ThreadStart(ServerThread));
             thread.Start();

@@ -15,11 +15,24 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+
         </Grid.RowDefinitions>
-        <TextBox x:Name="textBox1" Grid.Column="0" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Width="150"/>
-        <Button Content="Connect" Grid.Column="1" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Click="Connect_Click"/>
-        <Button Content="Mine" Grid.Column="2" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Click="Mine_Click"/>
-        <RichTextBox x:Name="richTextBox1" Grid.Column="1" Grid.Row="1" Grid.ColumnSpan="3" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Width="200" Height="200"/>
-        <RichTextBox x:Name="richTextBox2" Grid.Column="2" Grid.Row="1" Grid.ColumnSpan="3" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Width="200" Height="200"/>
+
+        <Label Content="Node name:" VerticalAlignment="Center"/>
+        <TextBox x:Name="textBox1" Grid.Column="1" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Width="150"/>
+        <Button Content="Connect" Grid.Column="2" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Click="Connect_Click"/>
+
+        <Label Content="Node port:" Grid.Row="1" VerticalAlignment="Center"/>
+        <TextBox x:Name="textBox2" Grid.Row="1" Grid.Column="1" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Width="150"/>
+        <Button Content="Mine" Grid.Row="1" Grid.Column="2" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Click="Mine_Click"/>
+
+        <Label Content="Port:" Grid.Row="3" VerticalAlignment="Center"/>
+        <TextBox x:Name="textBox3" Grid.Row="3" Grid.Column="1" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Width="150"/>
+        <Button Content="Start" Grid.Row="3" Grid.Column="2" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Click="Start_Click"/>
+
+        <RichTextBox x:Name="richTextBox1" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" Margin="5" VerticalAlignment="Top" HorizontalAlignment="Left" Width="200" Height="200"/>
+        <RichTextBox x:Name="richTextBox2" Grid.Row="2" Grid.Column="2" Margin="5,0,45,0" VerticalAlignment="Center" Height="200"/>
     </Grid>
 </Window>
