@@ -17,6 +17,10 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Security.Cryptography;
+using System.Timers;
+using System.Reflection;
+using System.Security.Policy;
+using System.Windows.Markup;
 
 namespace Blockchain
 {
@@ -78,6 +82,24 @@ namespace Blockchain
 
         #endregion
 
+        //-------------------------------------------------------------------------------------------------------------------------------------------------
+        // UI LOGIC
+
+        async Task UpdateRichTextBoxAsync(string message)
+        {
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (message.StartsWith("correct"))
+                {
+                    miningLogBuffer.Enqueue(message);
+                }
+            });
+        }
+
+
+        //-------------------------------------------------------------------------------------------------------------------------------------------------
+        // CONNECTION LOGIC
+
 
         private void ServerThread()
         {
@@ -102,15 +124,6 @@ namespace Blockchain
                 // Stop listening when the thread exits
                 listener.Stop();
             }
-        }
-
-        async Task UpdateRichTextBoxAsync(string message)
-        {
-            await Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                info_box_mine.AppendText(message);
-                info_box_mine.ScrollToEnd();
-            });
         }
 
         private void Connection(object clientObj)
@@ -197,6 +210,68 @@ namespace Blockchain
             }
         }
 
+
+
+        //-------------------------------------------------------------------------------------------------------------------------------------------------
+        // MINE LOGIC
+
+        async Task Mine()
+        {
+            while (run)
+            {
+                string data = string.Empty;
+                Dispatcher.Invoke(() => data = textBox1.Text);
+
+                int index = chain.Count;
+                string previousHash = chain.Count > 0 ? chain.Last().Hash : "0";
+
+                DateTime timeStamp = DateTime.Now;
+                int nonce = 0;
+                bool validBlock = false;
+
+                // Declare diffCompare based on the current DIFFICULTY
+                string diffCompare = new string('0', DIFFICULTY);
+
+                while (!validBlock && run)
+                {
+                    timeStamp = DateTime.Now;
+
+                    string toHash = $"{index},{timeStamp},{data},{previousHash},{DIFFICULTY},{nonce}";
+                    string currentHash = Sha256Hash(toHash);
+
+                    float timeDiffFromNow = (float)(DateTime.Now - timeStamp).TotalMinutes;
+                    float timeDiffFromPrev = chain.Count > 0 ? (float)(timeStamp - chain.Last().Timestamp).TotalMinutes : 0;
+
+                    validBlock = currentHash.Substring(0, DIFFICULTY) == diffCompare && timeDiffFromNow < 1 && timeDiffFromPrev < 1;
+
+                    if (!validBlock)
+                    {
+                        await UpdateRichTextBoxAsync($"wrong: {currentHash} diff: {DIFFICULTY}\n");
+                    }
+
+                    nonce++;
+                }
+
+                if (!run) break;
+
+                string hashFill = Sha256Hash($"{index},{timeStamp},{data},{previousHash},{DIFFICULTY},{nonce}");
+
+                Block newBlock = new Block(index, timeStamp, data, hashFill, previousHash, DIFFICULTY, nonce, username);
+                chain.Add(newBlock);
+
+                await UpdateRichTextBoxAsync($"correct: {newBlock.Hash} diff: {DIFFICULTY}\n");
+                await UpdateRichTextBoxAsync("Broadcasting our Blockchain:\n");
+
+                CheckTimeDiff();
+
+                List<string> param = new List<string> { "B", JsonSerializer.Serialize(chain) };
+                BroadCast(JsonSerializer.Serialize(param));
+                PrintChain();
+            }
+        }
+
+
+
         string Sha256Hash(string rawData)
         {
             // Create a SHA256   
@@ -214,102 +289,10 @@ namespace Blockchain
                 return builder.ToString();
             }
         }
-        async void Mine()
-        {
-            while (run)
-            {
-                string diff_compare = "";
-                string hash = "";
-                for (int i = 0; i < DIFFICULTY; i++)
-                {
-                    diff_compare += "0";
-                    hash += "X";
-                }
-
-                int index = 0;
-                string data = string.Empty;
-                Dispatcher.Invoke(() => data = textBox1.Text);
-                string previous_hash = "0";
-
-                DateTime time_stamp = DateTime.Now;
-                int nonce = 0;
-                bool valid_block = false;
-                while (!valid_block && run)
-                {
-                    time_stamp = DateTime.Now;
-                    if (chain.Count() > 0) previous_hash = chain[chain.Count() - 1].Hash;
-                    if (chain.Count() > 0) index = chain.Count();
-
-                    string to_hash = index.ToString() + time_stamp + data + previous_hash + DIFFICULTY.ToString() + nonce.ToString();
-                    hash = Sha256Hash(to_hash);
-                    float time_diff_from_now = (DateTime.Now - time_stamp).Minutes;
-                    float time_diff_from_prev = 0;
-                    if (chain.Count() > 0) time_diff_from_prev = (time_stamp - chain[chain.Count() - 1].Timestamp).Minutes;
-                    valid_block = hash.Substring(0, DIFFICULTY) == diff_compare && time_diff_from_now < 1 && time_diff_from_prev < 1;
-                    if (!valid_block)
-                    {
-                        await UpdateRichTextBoxAsync($"wrong: {hash} diff: {DIFFICULTY}\n");
-                    }
-                    nonce++;
-                }
-
-                if (!run) break;
-                chain.Add(new Block(index, time_stamp, data, hash, previous_hash, DIFFICULTY, nonce, username));
-
-                // Update richTextBox2 content
-                await UpdateRichTextBoxAsync($"correct: {hash} diff: {DIFFICULTY}\n");
-                await UpdateRichTextBoxAsync("Broadcasting our Blockchain:\n");
-
-                CheckTimeDiff();
-
-                List<string> param = new List<string> { "B", JsonSerializer.Serialize(chain) };
-                BroadCast(JsonSerializer.Serialize(param));
-                PrintChain();
-            }
-        }
-
-        
 
 
-
-        const int diff_n_interval = 3;
-        const float block_gen_time = 10;
-        const float diff_sensetivity_multiplier = 2;
-
-        void CheckTimeDiff()
-        {
-            if (chain.Count() < diff_n_interval || (chain.Count() % diff_n_interval) != 0) return;
-            Block prevAdjBlock = chain[chain.Count() - diff_n_interval];
-            float expected_time = diff_n_interval * block_gen_time;
-            Block last_block = chain[chain.Count() - 1];
-            float taken_time = (last_block.Timestamp - prevAdjBlock.Timestamp).Seconds;
-            int t = chain.Count();
-            if (taken_time < expected_time / diff_sensetivity_multiplier)
-            {
-                DIFFICULTY++;
-
-                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("!!!!" + "\n" +
-                                "raised the difficulty to: " + DIFFICULTY.ToString() + "\n" +
-                                "!!!!" + "\n"
-                                )));
-            }
-            else if (taken_time > expected_time * diff_sensetivity_multiplier)
-            {
-                DIFFICULTY--;
-
-                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("!!!!" + "\n" +
-                                "lowered the difficulty to: " + DIFFICULTY.ToString() + "\n" +
-                                "!!!!" + "\n"
-                                )));
-            }
-        }
-        void BroadCast(string message)
-        {
-            foreach (User user_ in client_users)
-            {
-                Send(message, user_.user_client);
-            }
-        }
+        //-------------------------------------------------------------------------------------------------------------------------------------------------
+        // CHAIN LOGIC
 
         void PrintChain()
         {
@@ -380,17 +363,50 @@ namespace Blockchain
             }
         }
 
+        const int diff_n_interval = 3;
+        const float block_gen_time = 10;
+        const float diff_sensetivity_multiplier = 2;
 
-        public MainWindow()
+        void CheckTimeDiff()
         {
-            InitializeComponent();
+            if (chain.Count() < diff_n_interval || (chain.Count() % diff_n_interval) != 0) return;
+            Block prevAdjBlock = chain[chain.Count() - diff_n_interval];
+            float expected_time = diff_n_interval * block_gen_time;
+            Block last_block = chain[chain.Count() - 1];
+            float taken_time = (last_block.Timestamp - prevAdjBlock.Timestamp).Seconds;
+            int t = chain.Count();
+            if (taken_time < expected_time / diff_sensetivity_multiplier)
+            {
+                DIFFICULTY++;
+
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("!!!!" + "\n" +
+                                "raised the difficulty to: " + DIFFICULTY.ToString() + "\n" +
+                                "!!!!" + "\n"
+                                )));
+            }
+            else if (taken_time > expected_time * diff_sensetivity_multiplier)
+            {
+                DIFFICULTY--;
+
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("!!!!" + "\n" +
+                                "lowered the difficulty to: " + DIFFICULTY.ToString() + "\n" +
+                                "!!!!" + "\n"
+                                )));
+            }
+        }
+        void BroadCast(string message)
+        {
+            foreach (User user_ in client_users)
+            {
+                Send(message, user_.user_client);
+            }
         }
 
-        
 
-        private void Connect_Click(object sender, EventArgs e)
+        //-------------------------------------------------------------------------------------------------------------------------------------------------
+        // CLICK LOGIC
+        private void Connect_Click(object sender, EventArgs e)  // connect
         {
-            //connect
             try
             {
                 TcpClient client_client = new TcpClient();
@@ -413,14 +429,12 @@ namespace Blockchain
             }
         }
 
-        private void Mine_Click(object sender, EventArgs e)
+        private void Mine_Click(object sender, EventArgs e) // mine
         {
-            //mine
             if (!run)
             {
                 run = true;
-                Thread thread = new Thread(new ThreadStart(Mine));
-                thread.Start();
+                Task miningTask = Task.Run(() => Mine());
             }
             else
             {
@@ -428,19 +442,53 @@ namespace Blockchain
             }
         }
 
-        private void Start_Click(object sender, EventArgs e)
+        private void Start_Click(object sender, EventArgs e) // start
         {
-            //start
             STD_PORT = Int32.Parse(text_box_start.Text);
             username = text_box_start.Text;
 
-            // Create the listener here
             listener = new TcpListener(IPAddress.Parse(STD_IP), STD_PORT);
 
             Thread thread = new Thread(new ThreadStart(ServerThread));
             thread.Start();
         }
 
+        //-------------------------------------------------------------------------------------------------------------------------------------------------
+        // UI TIMER
+
+        private void UiUpdateTimer_Elapsed(object state)
+        {
+            lock (updateLock)
+            {
+                if (!isUpdating && miningLogBuffer.Count > 0)
+                {
+                    isUpdating = true;
+
+                    Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        string logEntry = miningLogBuffer.Dequeue();
+                        info_box_mine.AppendText(logEntry);
+                        info_box_mine.ScrollToEnd();
+
+                        isUpdating = false;
+                    });
+                }
+            }
+        }
+
+        private readonly System.Threading.Timer uiUpdateTimer;
+        private readonly object updateLock = new object();
+        private readonly Queue<string> miningLogBuffer = new Queue<string>();
+        private bool isUpdating = false;
+
+        //-------------------------------------------------------------------------------------------------------------------------------------------------
+        // MAIN
+
+        public MainWindow()
+        {
+            InitializeComponent();
+            uiUpdateTimer = new System.Threading.Timer(UiUpdateTimer_Elapsed, null, 0, 1000);
+        }
     }
 }
 
