@@ -296,23 +296,30 @@ namespace Blockchain
 
         void PrintChain()
         {
-            info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("")));
-
-            foreach (Block block in chain)
+            info_box_block.Dispatcher.Invoke(new Action(() =>
             {
-                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText(
-                "Block " + (block.Index + 1).ToString() + "\n" +
-                "   Miner: " + block.Miner + "\n" +
-                "   Time stamp: " + block.Timestamp + "\n" +
-                "   Previous hash: " + "\n" +
-                "       " + block.Previous_hash + "\n" +
-                "   Difficulty: " + block.Difficulty.ToString() + "\n" +
-                "   Nonce: " + block.Nonce.ToString() + "\n" +
-                "   Hash: " + "\n" +
-                "       " + block.Hash + "\n"
-                )));
-            }
+                info_box_block.Document.Blocks.Clear();
+
+                foreach (Block block in chain)
+                {
+                    info_box_block.AppendText(
+                        "Block " + (block.Index + 1).ToString() + "\n" +
+                        "   Miner: " + block.Miner + "\n" +
+                        "   Time stamp: " + block.Timestamp + "\n" +
+                        "   Previous hash: " + "\n" +
+                        "       " + block.Previous_hash + "\n" +
+                        "   Difficulty: " + block.Difficulty.ToString() + "\n" +
+                        "   Nonce: " + block.Nonce.ToString() + "\n" +
+                        "   Hash: " + "\n" +
+                        "       " + block.Hash + "\n"
+                    );
+                }
+
+                // Set caret position to the end for automatic scrolling
+                info_box_block.ScrollToEnd();
+            }));
         }
+
 
         void CompareChain(List<Block> chain_, TcpClient client_, string username_)
         {
