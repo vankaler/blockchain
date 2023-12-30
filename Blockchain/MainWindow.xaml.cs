@@ -22,6 +22,7 @@ namespace Blockchain
 {
     public partial class MainWindow : Window
     {
+        private TcpListener listener;
         class Block
         {
             public int Index { get; set; }
@@ -78,105 +79,121 @@ namespace Blockchain
         #endregion
 
 
-        void ServerThread()
+        private void ServerThread()
         {
-            TcpListener listener = new TcpListener(IPAddress.Parse(STD_IP), STD_PORT);
-            listener.Start();
-
-            bool run = true;
-            for (int i = 0; run; i++)
+            try
             {
-                richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText( "Poslušam!" + "\n")));
-                TcpClient server_client = new TcpClient();
-                server_client = listener.AcceptTcpClient();
+                listener.Start();
 
-                Thread thread = new Thread(new ParameterizedThreadStart(Connection));
-                thread.Start(server_client);
+                while (run)
+                {
+                    TcpClient serverClient = listener.AcceptTcpClient();
+
+                    // Use a thread pool to handle the connection
+                    ThreadPool.QueueUserWorkItem(Connection, serverClient);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error in ServerThread: {ex.Message}");
+            }
+            finally
+            {
+                // Stop listening when the thread exits
+                listener.Stop();
             }
         }
 
-        void Connection(object client_)
+        async Task UpdateRichTextBoxAsync(string message)
         {
-            TcpClient server_client = (TcpClient)client_;
-
-            string connection_message = Recieve(server_client);
-
-            List<string> args = (List<string>)JsonSerializer.Deserialize(connection_message, typeof(List<string>));
-            string server_username = args[1];
-
-
-            if (args[0] == "C")
+            await Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                users.Add(new User(server_client, server_username));
-                List<string> usernames = new List<string>();
+                info_box_mine.AppendText(message);
+                info_box_mine.ScrollToEnd();
+            });
+        }
 
-                foreach (User u in users) usernames.Add(u.username);
-                richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText("Povezal se je uporabnik: " + server_username + "\n")));
-                richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText("Trenutni klienti: " + JsonSerializer.Serialize(usernames) + "\n")));
-                Send(username, server_client);
-            }
-            else
+        private void Connection(object clientObj)
+        {
+            try
             {
-                richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText( "Napaka\n")));
-                return;
-            }
+                TcpClient serverClient = (TcpClient)clientObj;
+                string connectionMessage = Recieve(serverClient);
 
-            bool run = true;
-            while (run)
-            {
-                string message = Recieve(server_client);
+                List<string> args = JsonSerializer.Deserialize<List<string>>(connectionMessage);
+                string serverUsername = args[1];
 
-                try
+                if (args[0] == "C")
                 {
-                    args = (List<string>)JsonSerializer.Deserialize(message, typeof(List<string>));
-                }
-                catch (Exception ex)
-                {
-                    continue;
-                }
-
-                if (args[0] == "B")
-                {
-                    List<Block> recieved_chain = (List<Block>)JsonSerializer.Deserialize(args[1], typeof(List<Block>));
-                    CompareChain(recieved_chain, server_client, server_username);
+                    users.Add(new User(serverClient, serverUsername));
+                    UpdateRichTextBoxAsync($"Connected user: {serverUsername}\nCurrent clients: {JsonSerializer.Serialize(users.Select(u => u.username))}\n");
+                    Send(username, serverClient);
                 }
                 else
                 {
-                    richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText("Napaka\n")));
+                    UpdateRichTextBoxAsync("Error\n");
                     return;
                 }
+
+                while (run)
+                {
+                    string message = Recieve(serverClient);
+
+                    try
+                    {
+                        args = JsonSerializer.Deserialize<List<string>>(message);
+                    }
+                    catch (Exception)
+                    {
+                        continue;
+                    }
+
+                    if (args[0] == "B")
+                    {
+                        List<Block> receivedChain = JsonSerializer.Deserialize<List<Block>>(args[1]);
+                        CompareChain(receivedChain, serverClient, serverUsername);
+                    }
+                    else
+                    {
+                        UpdateRichTextBoxAsync("Error\n");
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error in Connection: {ex.Message}");
             }
         }
 
-        string Recieve(TcpClient client_)
+
+        string Recieve(TcpClient client)
         {
-            NetworkStream stream = client_.GetStream();
             try
             {
-                byte[] byte_message = new byte[1024 * packet_size_KB];
-                int len = stream.Read(byte_message, 0, byte_message.Length);
-
-                string encrypted_message = Encoding.UTF8.GetString(byte_message, 0, len);
-                return encrypted_message;
+                NetworkStream stream = client.GetStream();
+                byte[] byteMessage = new byte[1024 * packet_size_KB];
+                int len = stream.Read(byteMessage, 0, byteMessage.Length);
+                return Encoding.UTF8.GetString(byteMessage, 0, len);
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                MessageBox.Show("Prišlo je do napake pri pošiljanju sporočila: \n" + e.Message + "\n" + e.StackTrace);
+                MessageBox.Show($"Error receiving message: {ex.Message}");
                 return null;
             }
         }
 
-        void Send(string message, TcpClient client_)
+        void Send(string message, TcpClient client)
         {
-            NetworkStream stream = client_.GetStream();
             try
             {
-                byte[] byte_message = Encoding.UTF8.GetBytes(message);
-                stream.Write(byte_message, 0, byte_message.Length);
+                NetworkStream stream = client.GetStream();
+                byte[] byteMessage = Encoding.UTF8.GetBytes(message);
+                stream.Write(byteMessage, 0, byteMessage.Length);
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                Console.WriteLine("Prišlo je do napake pri pošiljanju sporočila: \n" + e.Message + "\n" + e.StackTrace);
+                MessageBox.Show($"Error sending message: {ex.Message}");
             }
         }
 
@@ -197,8 +214,7 @@ namespace Blockchain
                 return builder.ToString();
             }
         }
-
-        void Mine()
+        async void Mine()
         {
             while (run)
             {
@@ -212,9 +228,8 @@ namespace Blockchain
 
                 int index = 0;
                 string data = string.Empty;
-                Dispatcher.Invoke(() => data = textBox1.Text);                    // ---> WHEN CLICKING ON MINE IT THROWS (System.InvalidOperationException: 'The calling thread cannot access this object because a different thread owns it.')
+                Dispatcher.Invoke(() => data = textBox1.Text);
                 string previous_hash = "0";
-
 
                 DateTime time_stamp = DateTime.Now;
                 int nonce = 0;
@@ -233,30 +248,29 @@ namespace Blockchain
                     valid_block = hash.Substring(0, DIFFICULTY) == diff_compare && time_diff_from_now < 1 && time_diff_from_prev < 1;
                     if (!valid_block)
                     {
-                        richTextBox2.Dispatcher.Invoke(new Action(() => richTextBox2.AppendText("wrong: " + hash + " diff: " + DIFFICULTY.ToString() + "\n")));
+                        await UpdateRichTextBoxAsync($"wrong: {hash} diff: {DIFFICULTY}\n");
                     }
                     nonce++;
                 }
+
                 if (!run) break;
                 chain.Add(new Block(index, time_stamp, data, hash, previous_hash, DIFFICULTY, nonce, username));
 
                 // Update richTextBox2 content
-                richTextBox2.Dispatcher.Invoke(() =>
-                {
-                    richTextBox2.AppendText("correct: " + hash + " diff: " + DIFFICULTY.ToString() + "\n");
-                    richTextBox2.AppendText("Broadcasting our BlockChain:" + "\n");
-                    richTextBox2.ScrollToEnd(); // Scroll to the end
-                });
+                await UpdateRichTextBoxAsync($"correct: {hash} diff: {DIFFICULTY}\n");
+                await UpdateRichTextBoxAsync("Broadcasting our Blockchain:\n");
 
                 CheckTimeDiff();
 
-                List<string> param = new List<string>();
-                param.Add("B");
-                param.Add(JsonSerializer.Serialize(chain));
+                List<string> param = new List<string> { "B", JsonSerializer.Serialize(chain) };
                 BroadCast(JsonSerializer.Serialize(param));
                 PrintChain();
             }
         }
+
+        
+
+
 
         const int diff_n_interval = 3;
         const float block_gen_time = 10;
@@ -274,7 +288,7 @@ namespace Blockchain
             {
                 DIFFICULTY++;
 
-                richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText("!!!!" + "\n" +
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("!!!!" + "\n" +
                                 "raised the difficulty to: " + DIFFICULTY.ToString() + "\n" +
                                 "!!!!" + "\n"
                                 )));
@@ -283,7 +297,7 @@ namespace Blockchain
             {
                 DIFFICULTY--;
 
-                richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText("!!!!" + "\n" +
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("!!!!" + "\n" +
                                 "lowered the difficulty to: " + DIFFICULTY.ToString() + "\n" +
                                 "!!!!" + "\n"
                                 )));
@@ -299,11 +313,11 @@ namespace Blockchain
 
         void PrintChain()
         {
-            richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText("")));
+            info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("")));
 
             foreach (Block block in chain)
             {
-                richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText(
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText(
                 "Block " + (block.Index + 1).ToString() + "\n" +
                 "   Miner: " + block.Miner + "\n" +
                 "   Time stamp: " + block.Timestamp + "\n" +
@@ -332,7 +346,7 @@ namespace Blockchain
             if (comulative_diff_recv > comulative_diff_ours)
             {
                 chain = chain_;
-                richTextBox2.Dispatcher.Invoke(new Action(() => richTextBox2.AppendText("Posodobil verigo" + "\n")));
+                info_box_mine.Dispatcher.Invoke(new Action(() => info_box_mine.AppendText("Posodobil verigo" + "\n")));
                 List<string> param = new List<string>();
                 param.Add("B");
                 param.Add(JsonSerializer.Serialize(chain));
@@ -341,14 +355,14 @@ namespace Blockchain
             }
             else if (comulative_diff_recv < comulative_diff_ours)
             {
-                richTextBox2.Dispatcher.Invoke(new Action(() => richTextBox2.AppendText("Nadomestil verigo" + "\n")));
+                info_box_mine.Dispatcher.Invoke(new Action(() => info_box_mine.AppendText("Nadomestil verigo" + "\n")));
                 bool found = false;
                 foreach (User u in client_users)
                 {
                     if (u.username == username_)
                     {
                         found = true;
-                        richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText("Pošiljam vojo verigo pošiljatelju" + "\n")));
+                        info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Pošiljam vojo verigo pošiljatelju" + "\n")));
 
                         List<string> param = new List<string>();
                         param.Add("B");
@@ -360,7 +374,7 @@ namespace Blockchain
                 if (!found)
                 {
 
-                    richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText("Pošiljatelj ni povezan in ne pošiljam verige" + "\n")));
+                    info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Pošiljatelj ni povezan in ne pošiljam verige" + "\n")));
 
                 }
             }
@@ -380,7 +394,7 @@ namespace Blockchain
             try
             {
                 TcpClient client_client = new TcpClient();
-                SERVER_PORT = Int32.Parse(textBox2.Text);
+                SERVER_PORT = Int32.Parse(text_box_connect.Text);
                 client_client.Connect(STD_IP, SERVER_PORT);
                 List<string> param = new List<string>();
                 param.Add("C");
@@ -391,7 +405,7 @@ namespace Blockchain
                 User new_outgoing_user = new User(client_client, partner_username);
                 client_users.Add(new_outgoing_user);
 
-                richTextBox1.Dispatcher.Invoke(new Action(() => richTextBox1.AppendText("Povezava vspostavljena na novega uporabnika\n")));
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Povezava vspostavljena na novega uporabnika\n")));
             }
             catch (Exception eg)
             {
@@ -417,12 +431,16 @@ namespace Blockchain
         private void Start_Click(object sender, EventArgs e)
         {
             //start
-            STD_PORT = Int32.Parse(textBox3.Text); // when clicking on start it throws an exception (System.FormatException: 'Input string was not in a correct format.')
-            username = textBox3.Text;
+            STD_PORT = Int32.Parse(text_box_start.Text);
+            username = text_box_start.Text;
+
+            // Create the listener here
+            listener = new TcpListener(IPAddress.Parse(STD_IP), STD_PORT);
 
             Thread thread = new Thread(new ThreadStart(ServerThread));
             thread.Start();
         }
+
     }
 }
 
