@@ -101,83 +101,109 @@ namespace Blockchain
         // CONNECTION LOGIC
 
 
-        private void ServerThread()
+        void ServerThread()
         {
-            try
-            {
-                listener.Start();
+            TcpListener listener = new TcpListener(IPAddress.Parse(STD_IP), STD_PORT);
+            listener.Start();
 
-                while (run)
-                {
-                    TcpClient serverClient = listener.AcceptTcpClient();
+            bool run = true;
+            for (int i = 0; run; i++)
+            {
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Poslušam!" + "\n")));
+                TcpClient server_client = new TcpClient();
+                server_client = listener.AcceptTcpClient();
 
-                    // Use a thread pool to handle the connection
-                    ThreadPool.QueueUserWorkItem(Connection, serverClient);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error in ServerThread: {ex.Message}");
-            }
-            finally
-            {
-                // Stop listening when the thread exits
-                listener.Stop();
+                Thread thread = new Thread(new ParameterizedThreadStart(Connection));
+                thread.Start(server_client);
             }
         }
 
-        private void Connection(object clientObj)
+        void Connection(object client_)
         {
-            try
+            TcpClient server_client = (TcpClient)client_;
+
+            string connection_message = Recieve(server_client);
+
+            List<string> args = (List<string>)JsonSerializer.Deserialize(connection_message, typeof(List<string>));
+            string server_username = args[1];
+
+
+            if (args[0] == "C")
             {
-                TcpClient serverClient = (TcpClient)clientObj;
-                string connectionMessage = Recieve(serverClient);
+                users.Add(new User(server_client, server_username));
+                List<string> usernames = new List<string>();
 
-                List<string> args = JsonSerializer.Deserialize<List<string>>(connectionMessage);
-                string serverUsername = args[1];
+                foreach (User u in users) usernames.Add(u.username);
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Povezal se je uporabnik: " + server_username + "\n")));
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Trenutni klienti: " + JsonSerializer.Serialize(usernames) + "\n")));
+                Send(username, server_client);
+            }
+            else
+            {
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Napaka\n")));
+                return;
+            }
 
-                if (args[0] == "C")
+            bool run = true;
+            while (run)
+            {
+                string message = Recieve(server_client);
+
+                try
                 {
-                    users.Add(new User(serverClient, serverUsername));
-                    UpdateRichTextBoxAsync($"Connected user: {serverUsername}\nCurrent clients: {JsonSerializer.Serialize(users.Select(u => u.username))}\n");
-                    Send(username, serverClient);
+                    args = (List<string>)JsonSerializer.Deserialize(message, typeof(List<string>));
+                }
+                catch (Exception ex)
+                {
+                    continue;
+                }
+
+                if (args[0] == "B")
+                {
+                    List<Block> recieved_chain = (List<Block>)JsonSerializer.Deserialize(args[1], typeof(List<Block>));
+                    CompareChain(recieved_chain, server_client, server_username);
                 }
                 else
                 {
-                    UpdateRichTextBoxAsync("Error\n");
+                    info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Napaka\n")));
                     return;
                 }
-
-                while (run)
-                {
-                    string message = Recieve(serverClient);
-
-                    try
-                    {
-                        args = JsonSerializer.Deserialize<List<string>>(message);
-                    }
-                    catch (Exception)
-                    {
-                        continue;
-                    }
-
-                    if (args[0] == "B")
-                    {
-                        List<Block> receivedChain = JsonSerializer.Deserialize<List<Block>>(args[1]);
-                        CompareChain(receivedChain, serverClient, serverUsername);
-                    }
-                    else
-                    {
-                        UpdateRichTextBoxAsync("Error\n");
-                        return;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error in Connection: {ex.Message}");
             }
         }
+
+        string Recieve(string message, TcpClient client_)
+        {
+            NetworkStream stream = client_.GetStream();
+            try
+            {
+                byte[] byte_message = new byte[1024 * packet_size_KB];
+                int len = stream.Read(byte_message, 0, byte_message.Length);
+
+                string encrypted_message = Encoding.UTF8.GetString(byte_message, 0, len);
+                return encrypted_message;
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show("Prišlo je do napake pri pošiljanju sporočila: \n" + e.Message + "\n" + e.StackTrace);
+                return null;
+            }
+        }
+
+        void Send(string message, TcpClient client_)
+        {
+            NetworkStream stream = client_.GetStream();
+            try
+            {
+                byte[] byte_message = Encoding.UTF8.GetBytes(message);
+                stream.Write(byte_message, 0, byte_message.Length);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Prišlo je do napake pri pošiljanju sporočila: \n" + e.Message + "\n" + e.StackTrace);
+            }
+        }
+
+        
 
 
         string Recieve(TcpClient client)
@@ -196,19 +222,7 @@ namespace Blockchain
             }
         }
 
-        void Send(string message, TcpClient client)
-        {
-            try
-            {
-                NetworkStream stream = client.GetStream();
-                byte[] byteMessage = Encoding.UTF8.GetBytes(message);
-                stream.Write(byteMessage, 0, byteMessage.Length);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error sending message: {ex.Message}");
-            }
-        }
+        
 
 
 
