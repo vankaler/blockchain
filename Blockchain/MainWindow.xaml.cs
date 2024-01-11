@@ -8,25 +8,33 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 using System.Security.Cryptography;
-using System.Timers;
-using System.Reflection;
-using System.Security.Policy;
-using System.Windows.Markup;
 
 namespace Blockchain
 {
     public partial class MainWindow : Window
     {
         private TcpListener listener;
+
+        #region Konstante
+
+        const string STD_IP = "127.0.0.1";
+        int SERVER_PORT;
+        int STD_PORT;
+        int DIFFICULTY = 2;
+        string username;
+        bool run = false;
+
+        const int packet_size_KB = 111;
+        List<User> client_users = new List<User>();
+        List<Block> chain = new List<Block>();
+        List<User> users = new List<User>();
+
+        #endregion
+
+        //-------------------------------------------------------------------------------------------------------------------------------------------------
+        // CLASSES
+
         class Block
         {
             public int Index { get; set; }
@@ -64,34 +72,18 @@ namespace Blockchain
             }
         }
 
-        #region Konstante
-
-        const string STD_IP = "127.0.0.1";
-        int SERVER_PORT;
-        int STD_PORT;
-        int DIFFICULTY = 2;
-        string username;
-        bool run = false;
-
-        const int packet_size_KB = 111;
-        List<User> client_users = new List<User>();
-        List<Block> chain = new List<Block>();
-        List<User> users = new List<User>();
-
-
-
-        #endregion
+        
 
         //-------------------------------------------------------------------------------------------------------------------------------------------------
         // UI LOGIC
 
-        async Task UpdateRichTextBoxAsync(string message)
+        async Task UpdateRichTextBoxAsync(string message) 
         {
-            await Application.Current.Dispatcher.InvokeAsync(() =>
+            await Application.Current.Dispatcher.InvokeAsync(() => // lambda funkcijo sem uporabil za izvajanje na glavni niti
             {
-                if (message.StartsWith("correct"))
+                if (message.StartsWith("correct"))  // preverja ce se sporocila zacne s correct
                 {
-                    miningLogBuffer.Enqueue(message);
+                    miningLogBuffer.Enqueue(message); // tukaj sem uporabil queue (vrsto) za hranjenje sporocil
                 }
             });
         }
@@ -101,46 +93,47 @@ namespace Blockchain
         // CONNECTION LOGIC
 
 
-        void ServerThread()
+        void ServerThread() // predstavlja glavno nit streznika
         {
             TcpListener listener = new TcpListener(IPAddress.Parse(STD_IP), STD_PORT);
             listener.Start();
 
             bool run = true;
-            for (int i = 0; run; i++)
+            for (int i = 0; run; i++) // zanka se izvaja neskoncno dolgo dokler je run enako true
             {
-                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Poslušam!" + "\n")));
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("I am listening!" + "\n")));
                 TcpClient server_client = new TcpClient();
                 server_client = listener.AcceptTcpClient();
 
-                Thread thread = new Thread(new ParameterizedThreadStart(Connection));
+                Thread thread = new Thread(new ParameterizedThreadStart(Connection)); // za vsako novo povezavo se ustvari nova nit
                 thread.Start(server_client);
             }
         }
 
         void Connection(object client_)
         {
-            TcpClient server_client = (TcpClient)client_;
+            TcpClient server_client = (TcpClient)client_; // pretvori
 
-            string connection_message = Recieve(server_client);
+            string connection_message = Recieve(server_client); // sprejme sporocilo s klicem funkcije recieve
 
-            List<string> args = (List<string>)JsonSerializer.Deserialize(connection_message, typeof(List<string>));
-            string server_username = args[1];
+            List<string> args = (List<string>)JsonSerializer.Deserialize(connection_message, typeof(List<string>)); // deserealizira sporocilo v seznam nizov List<string>
+
+            string server_username = args[1]; // vzame uporabnisko ime iz seznama
 
 
-            if (args[0] == "C")
+            if (args[0] == "C") // preveri ce je sporocilo tipa C (ce je se je uporabnik povezal)
             {
                 users.Add(new User(server_client, server_username));
-                List<string> usernames = new List<string>();
+                List<string> usernames = new List<string>(); // pripravi seznam uporabniskih imen za posodobitev
 
                 foreach (User u in users) usernames.Add(u.username);
-                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Povezal se je uporabnik: " + server_username + "\n")));
-                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Trenutni klienti: " + JsonSerializer.Serialize(usernames) + "\n")));
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Connection with a username: " + server_username + "\n")));
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Current client: " + JsonSerializer.Serialize(usernames) + "\n")));
                 Send(username, server_client);
             }
-            else
+            else // ce sporocilo ni tipa C javi napako
             {
-                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Napaka\n")));
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Error!\n")));
                 return;
             }
 
@@ -158,38 +151,22 @@ namespace Blockchain
                     continue;
                 }
 
-                if (args[0] == "B")
+                if (args[0] == "B") // preveri ce je sporocilo tipa B (kar pomeni prenos verige)
                 {
                     List<Block> recieved_chain = (List<Block>)JsonSerializer.Deserialize(args[1], typeof(List<Block>));
-                    CompareChain(recieved_chain, server_client, server_username);
+                    CompareChain(recieved_chain, server_client, server_username); // klicem funkcijo za primerjanje verige s trenutno verigo na strezniku
                 }
-                else
+                else // ce ni tipa B javi napako
                 {
-                    info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Napaka\n")));
+                    info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Error!\n")));
                     return;
                 }
             }
         }
 
-        string Recieve(string message, TcpClient client_)
-        {
-            NetworkStream stream = client_.GetStream();
-            try
-            {
-                byte[] byte_message = new byte[1024 * packet_size_KB];
-                int len = stream.Read(byte_message, 0, byte_message.Length);
+        
 
-                string encrypted_message = Encoding.UTF8.GetString(byte_message, 0, len);
-                return encrypted_message;
-            }
-            catch (Exception e)
-            {
-                MessageBox.Show("Prišlo je do napake pri pošiljanju sporočila: \n" + e.Message + "\n" + e.StackTrace);
-                return null;
-            }
-        }
-
-        void Send(string message, TcpClient client_)
+        void Send(string message, TcpClient client_) // legit copy paste iz presnjih nalog
         {
             NetworkStream stream = client_.GetStream();
             try
@@ -199,14 +176,14 @@ namespace Blockchain
             }
             catch (Exception e)
             {
-                Console.WriteLine("Prišlo je do napake pri pošiljanju sporočila: \n" + e.Message + "\n" + e.StackTrace);
+                Console.WriteLine("Error accured when sending a message: \n" + e.Message + "\n" + e.StackTrace);
             }
         }
 
         
 
 
-        string Recieve(TcpClient client)
+        string Recieve(TcpClient client) // legit copy paste iz presnjih nalog
         {
             try
             {
@@ -222,22 +199,19 @@ namespace Blockchain
             }
         }
 
-        
-
-
 
         //-------------------------------------------------------------------------------------------------------------------------------------------------
         // MINE LOGIC
 
         async Task Mine()
         {
-            while (run)
+            while (run) 
             {
                 string data = string.Empty;
-                Dispatcher.Invoke(() => data = textBox1.Text);
+                Dispatcher.Invoke(() => data = textBox1.Text); // pridobi podatke za rudarjenje iz textBox1. Dispatcher.Invoke se uporablja za pravilno dostopanje do uporabniškega vmesnika, ker se ta del izvaja v drugi niti.
 
                 int index = chain.Count;
-                string previousHash = chain.Count > 0 ? chain.Last().Hash : "0";
+                string previousHash = chain.Count > 0 ? chain.Last().Hash : "0"; // določa indeks novega bloka in prejšnji hash v verigi. Če je veriga prazna, se prejšnji hash postavi na "0".
 
                 DateTime timeStamp = DateTime.Now;
                 int nonce = 0;
@@ -250,15 +224,15 @@ namespace Blockchain
                 {
                     timeStamp = DateTime.Now;
 
-                    string toHash = $"{index},{timeStamp},{data},{previousHash},{DIFFICULTY},{nonce}";
-                    string currentHash = Sha256Hash(toHash);
+                    string toHash = $"{index},{timeStamp},{data},{previousHash},{DIFFICULTY},{nonce}"; // sestavi niz, ki ga je treba hashirati za preverjanje veljavnosti bloka.
+                    string currentHash = Sha256Hash(toHash); // izracuna trenutni hash bloka
 
                     float timeDiffFromNow = (float)(DateTime.Now - timeStamp).TotalMinutes;
                     float timeDiffFromPrev = chain.Count > 0 ? (float)(timeStamp - chain.Last().Timestamp).TotalMinutes : 0;
 
-                    validBlock = currentHash.Substring(0, DIFFICULTY) == diffCompare && timeDiffFromNow < 1 && timeDiffFromPrev < 1;
+                    validBlock = currentHash.Substring(0, DIFFICULTY) == diffCompare && timeDiffFromNow < 1 && timeDiffFromPrev < 1; // preveri, ali je trenutni hash dovolj tezak, in casovni pogoji so izpolnjeni.
 
-                    if (!validBlock)
+                    if (!validBlock) // ce trenutni blok ni veljaven, se izvede asinhrono posodabljanje uporabniškega vmesnika s sporočilom o napaki.
                     {
                         await UpdateRichTextBoxAsync($"wrong: {currentHash} diff: {DIFFICULTY}\n");
                     }
@@ -268,9 +242,9 @@ namespace Blockchain
 
                 if (!run) break;
 
-                string hashFill = Sha256Hash($"{index},{timeStamp},{data},{previousHash},{DIFFICULTY},{nonce}");
+                string hashFill = Sha256Hash($"{index},{timeStamp},{data},{previousHash},{DIFFICULTY},{nonce}"); // izracuna koncni hash bloka
 
-                Block newBlock = new Block(index, timeStamp, data, hashFill, previousHash, DIFFICULTY, nonce, username);
+                Block newBlock = new Block(index, timeStamp, data, hashFill, previousHash, DIFFICULTY, nonce, username); // ustvari nov blok s posodobljenimi podatki
                 chain.Add(newBlock);
 
                 await UpdateRichTextBoxAsync($"correct: {newBlock.Hash} diff: {DIFFICULTY}\n");
@@ -279,7 +253,7 @@ namespace Blockchain
                 CheckTimeDiff();
 
                 List<string> param = new List<string> { "B", JsonSerializer.Serialize(chain) };
-                BroadCast(JsonSerializer.Serialize(param));
+                BroadCast(JsonSerializer.Serialize(param)); // adda sporocilo na vse povezane odjemalce
                 PrintChain();
             }
         }
@@ -288,17 +262,15 @@ namespace Blockchain
 
         string Sha256Hash(string rawData)
         {
-            // Create a SHA256   
-            using (SHA256 sha256Hash = SHA256.Create())
-            {
-                // ComputeHash - returns byte array  
-                byte[] bytes = sha256Hash.ComputeHash(Encoding.UTF8.GetBytes(rawData));
+            using (SHA256 sha256Hash = SHA256.Create()) 
+            { 
+                byte[] bytes = sha256Hash.ComputeHash(Encoding.UTF8.GetBytes(rawData)); // izračunaj hash iz vnešenih (rawData)
 
-                // Convert byte array to a string   
-                StringBuilder builder = new StringBuilder();
-                for (int i = 0; i < bytes.Length; i++)
+                StringBuilder builder = new StringBuilder(); // StringBuilder za sestavljanje niza v heksadecimalni obliki
+
+                for (int i = 0; i < bytes.Length; i++) // zanka, ki gre skozi vsak bajt hasha.
                 {
-                    builder.Append(bytes[i].ToString("x2"));
+                    builder.Append(bytes[i].ToString("x2")); // pretvori vsak bajt hasha v heksadecimalno obliko in dodaj k rezultatu
                 }
                 return builder.ToString();
             }
@@ -328,9 +300,7 @@ namespace Blockchain
                         "       " + block.Hash + "\n"
                     );
                 }
-
-                // Set caret position to the end for automatic scrolling
-                info_box_block.ScrollToEnd();
+                info_box_block.ScrollToEnd(); // avtomatsko scrollanje na dno
             }));
         }
 
@@ -339,40 +309,47 @@ namespace Blockchain
         {
             double comulative_diff_ours = 0;
             double comulative_diff_recv = 0;
+
             foreach (Block block in chain)
             {
-                comulative_diff_ours += Math.Pow(2, block.Difficulty);
+                comulative_diff_ours += Math.Pow(2, block.Difficulty); // izracuna skupno težavnost blokov v lokalni verigi (chain)
             }
             foreach (Block block in chain_)
             {
-                comulative_diff_recv += Math.Pow(2, block.Difficulty);
+                comulative_diff_recv += Math.Pow(2, block.Difficulty); // izracuna skupno težavnost blokov v prejeti verigi (chain_)
             }
-            if (comulative_diff_recv > comulative_diff_ours)
+            if (comulative_diff_recv > comulative_diff_ours) 
             {
+                // ce je težavnost prejete verige večja od lokalne, posodobi lokalno verigo
                 chain = chain_;
                 info_box_mine.Dispatcher.Invoke(new Action(() => info_box_mine.AppendText("Posodobil verigo" + "\n")));
+                // pripravi sporočilo za oddajanje posodobljene verige na druge povezane odjemalce
                 List<string> param = new List<string>();
                 param.Add("B");
                 param.Add(JsonSerializer.Serialize(chain));
-                BroadCast(JsonSerializer.Serialize(param));
+
+                BroadCast(JsonSerializer.Serialize(param)); // odda sporocilo na vse povezane odjemalce
                 PrintChain();
             }
             else if (comulative_diff_recv < comulative_diff_ours)
             {
+                // ce je težavnost prejete verige manjša od lokalne, nadomesti lokalno verigo z novo
                 info_box_mine.Dispatcher.Invoke(new Action(() => info_box_mine.AppendText("Nadomestil verigo" + "\n")));
                 bool found = false;
-                foreach (User u in client_users)
+
+                foreach (User u in client_users) // preveri, ali je pošiljatelj (uporabnik z imenom username_) povezan
                 {
                     if (u.username == username_)
                     {
                         found = true;
                         info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Pošiljam vojo verigo pošiljatelju" + "\n")));
-
+                        // pripravim sporočilo za oddajanje lokalne verige pošiljatelju
                         List<string> param = new List<string>();
                         param.Add("B");
                         param.Add(JsonSerializer.Serialize(chain));
 
-                        Send(JsonSerializer.Serialize(param), u.user_client);
+                        
+                        Send(JsonSerializer.Serialize(param), u.user_client); // poslje sporocilo psiljatelju
                     }
                 }
                 if (!found)
@@ -388,15 +365,15 @@ namespace Blockchain
         const float block_gen_time = 10;
         const float diff_sensetivity_multiplier = 2;
 
-        void CheckTimeDiff()
+        void CheckTimeDiff() // s to metodo preverjam razliko v casu med generiranjem blokov v verigi in glede na to prilagaja tezavnost rudarjenja
         {
-            if (chain.Count() < diff_n_interval || (chain.Count() % diff_n_interval) != 0) return;
-            Block prevAdjBlock = chain[chain.Count() - diff_n_interval];
-            float expected_time = diff_n_interval * block_gen_time;
+            if (chain.Count() < diff_n_interval || (chain.Count() % diff_n_interval) != 0) return; // preveri, ali je dovolj blokov v verigi za izvedbo preverjanja
+            Block prevAdjBlock = chain[chain.Count() - diff_n_interval]; // pridobim zadnji blok v trenutni verigi
+            float expected_time = diff_n_interval * block_gen_time; // pričakovani čas generiranja diff_n_interval blokov
             Block last_block = chain[chain.Count() - 1];
             float taken_time = (last_block.Timestamp - prevAdjBlock.Timestamp).Seconds;
             int t = chain.Count();
-            if (taken_time < expected_time / diff_sensetivity_multiplier)
+            if (taken_time < expected_time / diff_sensetivity_multiplier) // ce je cas prenizek poveca tezavnost rudarjenja
             {
                 DIFFICULTY++;
 
@@ -405,7 +382,7 @@ namespace Blockchain
                                 "!!!!" + "\n"
                                 )));
             }
-            else if (taken_time > expected_time * diff_sensetivity_multiplier)
+            else if (taken_time > expected_time * diff_sensetivity_multiplier) // ce je cas previsok zmanjsa tezavnost rudarjenja
             {
                 DIFFICULTY--;
 
@@ -442,11 +419,11 @@ namespace Blockchain
                 User new_outgoing_user = new User(client_client, partner_username);
                 client_users.Add(new_outgoing_user);
 
-                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Povezava vspostavljena na novega uporabnika\n")));
+                info_box_block.Dispatcher.Invoke(new Action(() => info_box_block.AppendText("Connection established with a new user!\n")));
             }
             catch (Exception eg)
             {
-                MessageBox.Show("Napaka pri povezovanju \n" + eg.Message + "\n" + eg.StackTrace);
+                MessageBox.Show("Error accured when connecting!\n" + eg.Message + "\n" + eg.StackTrace);
             }
         }
 
